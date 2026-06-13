@@ -2,7 +2,8 @@
    main.js — shared behaviour for both pages
    - builds a scenic, animated background: a phage on a bicycle
      riding continuously along a rolling hill, with a Popocatépetl
-     volcano (a nod to Puebla), pines, drifting clouds & a sun
+     volcano (a nod to Puebla) that erupts now and then, pines,
+     drifting clouds & a sun
    - nav toggle, scroll-reveal, animated counters, progress rail
    All vanilla. Respects prefers-reduced-motion.
    ============================================================ */
@@ -81,6 +82,8 @@
           '<polygon points="320,138 214,300 426,300" fill="#69819f"/>' +
           '<polygon points="320,138 286,190 305,180 320,196 335,180 352,190" fill="#f2f7fc"/>' +
         '</g>' +
+        // eruption effects (lava + ash), populated by setupVolcano()
+        '<g id="volcano-fx"></g>' +
         // far mountains
         '<path opacity=".24" fill="#4f7d86" d="M-60 296 L110 244 L250 300 L380 236 L540 300 L690 244 L840 300 L1000 248 L1150 300 L1260 268 L1260 400 L-60 400 Z"/>' +
         // drifting clouds
@@ -124,6 +127,118 @@
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
+  }
+
+  /* ---------- volcano: erupt every so often ---------- */
+  function setupVolcano() {
+    var fx = document.getElementById("volcano-fx");
+    if (!fx || reduce) return; // no eruptions when motion is reduced
+    var NS = "http://www.w3.org/2000/svg";
+    var CX = 320, CY = 138;            // summit / crater
+    var GRAV = 90;                     // user-units / s^2
+    var parts = [];                    // active lava particles
+    var smoke = [];                    // active ash puffs
+    var glow = null, glowT = 0, glowDur = 0;
+    var last = null, running = false;
+
+    function el(tag, attrs) {
+      var n = document.createElementNS(NS, tag);
+      for (var k in attrs) n.setAttribute(k, attrs[k]);
+      return n;
+    }
+
+    function erupt() {
+      // crater glow flares up
+      if (!glow) {
+        glow = el("ellipse", { cx: CX, cy: CY + 1, rx: 18, ry: 7, fill: "#ff7324" });
+        fx.appendChild(glow);
+      }
+      glowDur = 2 + Math.random() * 1.2;
+      glowT = 0;
+      // launch a burst of lava bombs
+      var n = 14 + Math.floor(Math.random() * 10);
+      for (var i = 0; i < n; i++) {
+        var ang = (-Math.PI / 2) + (Math.random() - 0.5) * 1.15; // mostly upward
+        var sp = 70 + Math.random() * 95;
+        var r = 1.4 + Math.random() * 2.6;
+        var node = el("circle", { cx: CX, cy: CY, r: r, fill: i % 3 ? "#ff5a1f" : "#ffd23f" });
+        fx.appendChild(node);
+        parts.push({
+          node: node, x: CX, y: CY,
+          vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+          life: 1.6 + Math.random() * 1.1, age: 0
+        });
+      }
+      // a few ash puffs drift up
+      var m = 3 + Math.floor(Math.random() * 3);
+      for (var j = 0; j < m; j++) {
+        var pf = el("circle", { cx: CX, cy: CY, r: 5, fill: "#8a8d93", opacity: 0.32 });
+        fx.appendChild(pf);
+        smoke.push({
+          node: pf, x: CX + (Math.random() - 0.5) * 10, y: CY,
+          vx: (Math.random() - 0.5) * 14, vy: -(16 + Math.random() * 14),
+          r: 5, life: 2.6 + Math.random() * 1.4, age: 0
+        });
+      }
+      ensureRunning();
+    }
+
+    function step(ts) {
+      if (last === null) last = ts;
+      var dt = Math.min(0.05, (ts - last) / 1000);
+      last = ts;
+
+      for (var i = parts.length - 1; i >= 0; i--) {
+        var p = parts[i];
+        p.age += dt;
+        p.vy += GRAV * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        if (p.age >= p.life || p.y > 300) {
+          fx.removeChild(p.node); parts.splice(i, 1); continue;
+        }
+        p.node.setAttribute("cx", p.x.toFixed(1));
+        p.node.setAttribute("cy", p.y.toFixed(1));
+        p.node.setAttribute("opacity", Math.max(0, 1 - p.age / p.life).toFixed(2));
+      }
+
+      for (var k = smoke.length - 1; k >= 0; k--) {
+        var s = smoke[k];
+        s.age += dt;
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.r += 9 * dt;
+        if (s.age >= s.life) { fx.removeChild(s.node); smoke.splice(k, 1); continue; }
+        s.node.setAttribute("cx", s.x.toFixed(1));
+        s.node.setAttribute("cy", s.y.toFixed(1));
+        s.node.setAttribute("r", s.r.toFixed(1));
+        s.node.setAttribute("opacity", (0.32 * Math.max(0, 1 - s.age / s.life)).toFixed(2));
+      }
+
+      if (glow) {
+        glowT += dt;
+        var g = Math.max(0, 1 - glowT / glowDur);
+        glow.setAttribute("opacity", (g * 0.75).toFixed(2));
+        glow.setAttribute("rx", (14 + 6 * Math.sin(glowT * 8) * g + 4 * g).toFixed(1));
+        if (g <= 0) { fx.removeChild(glow); glow = null; }
+      }
+
+      if (parts.length || smoke.length || glow) {
+        requestAnimationFrame(step);
+      } else {
+        running = false; last = null;
+      }
+    }
+
+    function ensureRunning() {
+      if (!running) { running = true; last = null; requestAnimationFrame(step); }
+    }
+
+    function schedule() {
+      var wait = 9000 + Math.random() * 12000; // 9–21s between eruptions
+      setTimeout(function () { erupt(); schedule(); }, wait);
+    }
+    setTimeout(function () { erupt(); schedule(); }, 2500 + Math.random() * 2500);
   }
 
   /* ---------- nav toggle ---------- */
@@ -217,6 +332,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     setupNav();
     setupRide();
+    setupVolcano();
     setupReveal();
     setupCounters();
     setupRail();
