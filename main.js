@@ -94,6 +94,8 @@
         '<g opacity=".55">' + trees + '</g>' +
         // front hill (ground)
         '<path opacity=".3" fill="#2F8F6F" d="' + RIDE + ' L1260 400 L-60 400 Z"/>' +
+        // a bacterium that the phages lyse, populated by setupLysis()
+        '<g id="lysis-fx"></g>' +
         // the dashed riding line
         '<path id="ride-path" d="' + RIDE + '" fill="none" stroke="#1C5AA6" stroke-width="2.5" stroke-dasharray="2 9" stroke-linecap="round" opacity=".5"/>' +
         // the rider
@@ -143,12 +145,26 @@
     // unit vectors down the two cone slopes (apex 320,138 -> base 214/426,300)
     var SLOPES = [{ dx: -0.543, dy: 0.831 }, { dx: 0.543, dy: 0.831 }];
     var glow = null, glowT = 0, glowDur = 0;
-    var last = null, running = false;
+    var last = null, trickleAcc = 0;
 
     function el(tag, attrs) {
       var n = document.createElementNS(NS, tag);
       for (var k in attrs) n.setAttribute(k, attrs[k]);
       return n;
+    }
+
+    // a single bit of lava sliding down a slope
+    function addFlow(d0, jit, fr, sp, op, life) {
+      var dir = SLOPES[(Math.random() * 2) | 0];
+      var node = el("circle", { cx: CX, cy: CY, r: fr, fill: LAVA[(Math.random() * LAVA.length) | 0] });
+      fx.appendChild(node);
+      flows.push({
+        node: node,
+        x: CX + dir.dx * d0 - dir.dy * jit,
+        y: CY + dir.dy * d0 + dir.dx * jit,
+        vx: dir.dx * sp, vy: dir.dy * sp,
+        op: op, life: life, age: 0
+      });
     }
 
     function erupt() {
@@ -175,25 +191,12 @@
         });
       }
 
-      // lava running down both slopes, like a real volcano
-      for (var sd = 0; sd < SLOPES.length; sd++) {
-        var dir = SLOPES[sd];
-        var fc = 11 + Math.floor(Math.random() * 7);
-        for (var f = 0; f < fc; f++) {
-          var d0 = Math.random() * 120;             // spread along the slope
-          var jit = (Math.random() - 0.5) * 7;      // perpendicular wander
-          var fr = 1.8 + Math.random() * 1.8;
-          var fnode = el("circle", { cx: CX, cy: CY, r: fr, fill: LAVA[f % LAVA.length] });
-          fx.appendChild(fnode);
-          flows.push({
-            node: fnode,
-            x: CX + dir.dx * d0 - dir.dy * jit,
-            y: CY + dir.dy * d0 + dir.dx * jit,
-            vx: dir.dx * (16 + Math.random() * 16),
-            vy: dir.dy * (16 + Math.random() * 16),
-            life: 2.6 + Math.random() * 2.2, age: 0
-          });
-        }
+      // a surge of lava gushing down both slopes
+      var fc = 22 + Math.floor(Math.random() * 12);
+      for (var f = 0; f < fc; f++) {
+        addFlow(Math.random() * 120, (Math.random() - 0.5) * 7,
+          1.8 + Math.random() * 1.8, 16 + Math.random() * 16,
+          0.95, 2.6 + Math.random() * 2.2);
       }
 
       // ash billowing out in all (upward) directions
@@ -210,8 +213,6 @@
           r: r0, life: 3 + Math.random() * 2, age: 0
         });
       }
-
-      ensureRunning();
     }
 
     function step(ts) {
@@ -243,7 +244,7 @@
         }
         fl.node.setAttribute("cx", fl.x.toFixed(1));
         fl.node.setAttribute("cy", fl.y.toFixed(1));
-        fl.node.setAttribute("opacity", (0.95 * Math.max(0, 1 - fl.age / fl.life)).toFixed(2));
+        fl.node.setAttribute("opacity", (fl.op * Math.max(0, 1 - fl.age / fl.life)).toFixed(2));
       }
 
       for (var k = smoke.length - 1; k >= 0; k--) {
@@ -267,15 +268,16 @@
         if (g <= 0) { fx.removeChild(glow); glow = null; }
       }
 
-      if (parts.length || flows.length || smoke.length || glow) {
-        requestAnimationFrame(step);
-      } else {
-        running = false; last = null;
+      // gentle, ever-present lava trickling down the sides
+      trickleAcc += dt;
+      while (trickleAcc >= 0.2) {
+        trickleAcc -= 0.2;
+        addFlow(2 + Math.random() * 12, (Math.random() - 0.5) * 5,
+          1.2 + Math.random() * 1.2, 14 + Math.random() * 10,
+          0.5, 5 + Math.random() * 2);
       }
-    }
 
-    function ensureRunning() {
-      if (!running) { running = true; last = null; requestAnimationFrame(step); }
+      requestAnimationFrame(step);
     }
 
     function schedule() {
@@ -283,6 +285,117 @@
       setTimeout(function () { erupt(); schedule(); }, wait);
     }
     setTimeout(function () { erupt(); schedule(); }, 1500 + Math.random() * 1500);
+    requestAnimationFrame(step); // start the loop (gentle flow runs from load)
+  }
+
+  /* ---------- a bacterium the phages keep lysing ---------- */
+  function setupLysis() {
+    var host = document.getElementById("lysis-fx");
+    if (!host || reduce) return; // no bursting when motion is reduced
+    var NS = "http://www.w3.org/2000/svg";
+    var BX = 690, BY = 290, GRAV = 80; // sits on the front hill
+    var cell = null, cellAge = 0, alive = false, bits = [], last = null;
+
+    function el(tag, attrs, parent) {
+      var n = document.createElementNS(NS, tag);
+      for (var k in attrs) n.setAttribute(k, attrs[k]);
+      if (parent) parent.appendChild(n);
+      return n;
+    }
+
+    // a tiny phage (same icosahedral head + tail as the cyclist)
+    function miniPhage(parent) {
+      var g = el("g", {}, parent);
+      el("polygon", { points: "0,-5 4.4,-2.5 4.4,2.5 0,5 -4.4,2.5 -4.4,-2.5", fill: "#1C5AA6" }, g);
+      el("line", { x1: 0, y1: 5, x2: 0, y2: 11, stroke: "#1C5AA6", "stroke-width": 1.3 }, g);
+      el("line", { x1: 0, y1: 11, x2: -3, y2: 14, stroke: "#1C5AA6", "stroke-width": 1.1 }, g);
+      el("line", { x1: 0, y1: 11, x2: 3, y2: 14, stroke: "#1C5AA6", "stroke-width": 1.1 }, g);
+      return g;
+    }
+
+    // a rod-shaped bacterium, built around the origin so it can swell
+    function makeCell() {
+      var g = el("g", { opacity: 0 }, host);
+      el("rect", { x: -20, y: -9, width: 40, height: 18, rx: 9, fill: "#5fae8e", stroke: "#2f6f5a", "stroke-width": 1.5 }, g);
+      el("ellipse", { cx: -5, cy: -1, rx: 8, ry: 3.6, fill: "#327a61", opacity: 0.55 }, g);
+      el("ellipse", { cx: 9, cy: 2, rx: 4, ry: 2.2, fill: "#327a61", opacity: 0.45 }, g);
+      var p1 = miniPhage(g); p1.setAttribute("transform", "translate(-9 -9) rotate(180) scale(.72)");
+      var p2 = miniPhage(g); p2.setAttribute("transform", "translate(8 -9) rotate(165) scale(.62)");
+      return g;
+    }
+
+    // burst: scatter progeny phages and cell debris
+    function burst() {
+      var n = 8 + Math.floor(Math.random() * 4);
+      for (var i = 0; i < n; i++) {
+        var a = Math.random() * Math.PI * 2, sp = 26 + Math.random() * 44;
+        bits.push({
+          node: miniPhage(host), kind: "phage", x: BX, y: BY,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 16,
+          rot: Math.random() * 360, vr: (Math.random() - 0.5) * 260,
+          sc: 0.6 + Math.random() * 0.45, life: 1.6 + Math.random() * 1.1, age: 0
+        });
+      }
+      var d = 6 + Math.floor(Math.random() * 4);
+      for (var j = 0; j < d; j++) {
+        var a2 = Math.random() * Math.PI * 2, sp2 = 18 + Math.random() * 30;
+        bits.push({
+          node: el("circle", { cx: BX, cy: BY, r: 1.6 + Math.random() * 2.2, fill: "#5fae8e" }, host),
+          kind: "debris", x: BX, y: BY,
+          vx: Math.cos(a2) * sp2, vy: Math.sin(a2) * sp2 - 10,
+          life: 1.1 + Math.random() * 0.7, age: 0
+        });
+      }
+      if (cell) { host.removeChild(cell); cell = null; }
+      alive = false;
+    }
+
+    function step(ts) {
+      if (last === null) last = ts;
+      var dt = Math.min(0.05, (ts - last) / 1000);
+      last = ts;
+
+      if (alive && cell) {
+        cellAge += dt;
+        var op = Math.min(1, cellAge * 1.8);
+        var s = Math.min(1.42, 0.6 + cellAge * 0.3);     // fade/grow in, then swell
+        var wob = 0.05 * Math.sin(cellAge * 7);          // jittery as it strains
+        cell.setAttribute("opacity", op.toFixed(2));
+        cell.setAttribute("transform", "translate(" + BX + " " + BY + ") scale(" +
+          (s * (1 + wob)).toFixed(3) + " " + (s * (1 - wob)).toFixed(3) + ")");
+      }
+
+      for (var i = bits.length - 1; i >= 0; i--) {
+        var b = bits[i];
+        b.age += dt;
+        b.vy += GRAV * dt;
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        if (b.age >= b.life || b.y > 360) { host.removeChild(b.node); bits.splice(i, 1); continue; }
+        var o = Math.max(0, 1 - b.age / b.life);
+        if (b.kind === "phage") {
+          b.rot += b.vr * dt;
+          b.node.setAttribute("transform", "translate(" + b.x.toFixed(1) + " " + b.y.toFixed(1) +
+            ") rotate(" + b.rot.toFixed(0) + ") scale(" + b.sc.toFixed(2) + ")");
+        } else {
+          b.node.setAttribute("cx", b.x.toFixed(1));
+          b.node.setAttribute("cy", b.y.toFixed(1));
+        }
+        b.node.setAttribute("opacity", o.toFixed(2));
+      }
+
+      requestAnimationFrame(step);
+    }
+
+    function cycle() {
+      cell = makeCell(); cellAge = 0; alive = true;
+      setTimeout(function () {
+        if (cell) burst();
+        setTimeout(cycle, 1600 + Math.random() * 2400); // regrow after a pause
+      }, 2800 + Math.random() * 2400);
+    }
+    setTimeout(cycle, 1200 + Math.random() * 1600);
+    requestAnimationFrame(step);
   }
 
   /* ---------- nav toggle ---------- */
@@ -377,6 +490,7 @@
     setupNav();
     setupRide();
     setupVolcano();
+    setupLysis();
     setupReveal();
     setupCounters();
     setupRail();
