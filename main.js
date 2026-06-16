@@ -136,8 +136,12 @@
     var NS = "http://www.w3.org/2000/svg";
     var CX = 320, CY = 138;            // summit / crater
     var GRAV = 90;                     // user-units / s^2
-    var parts = [];                    // active lava particles
+    var parts = [];                    // active lava bombs (fountain)
+    var flows = [];                    // lava running down the slopes
     var smoke = [];                    // active ash puffs
+    var LAVA = ["#ff7a1a", "#ff5e10", "#ff8c2b", "#e8521a"]; // orange tones
+    // unit vectors down the two cone slopes (apex 320,138 -> base 214/426,300)
+    var SLOPES = [{ dx: -0.543, dy: 0.831 }, { dx: 0.543, dy: 0.831 }];
     var glow = null, glowT = 0, glowDur = 0;
     var last = null, running = false;
 
@@ -150,19 +154,19 @@
     function erupt() {
       // crater glow flares up
       if (!glow) {
-        glow = el("ellipse", { cx: CX, cy: CY + 1, rx: 22, ry: 8, fill: "#ff8a32" });
+        glow = el("ellipse", { cx: CX, cy: CY + 1, rx: 22, ry: 8, fill: "#ff7a1a" });
         fx.appendChild(glow);
       }
       glowDur = 2.4 + Math.random() * 1.4;
       glowT = 0;
-      // launch a burst of lava bombs — a low, wide fountain that rains
-      // down the visible cone slopes
+
+      // lava fountain — orange bombs arc up and out of the crater
       var n = 20 + Math.floor(Math.random() * 14);
       for (var i = 0; i < n; i++) {
-        var ang = (-Math.PI / 2) + (Math.random() - 0.5) * 1.5; // up, but well spread
+        var ang = (-Math.PI / 2) + (Math.random() - 0.5) * 1.5; // up, well spread
         var sp = 40 + Math.random() * 60;
         var r = 2 + Math.random() * 2.4;
-        var node = el("circle", { cx: CX, cy: CY, r: r, fill: i % 3 ? "#ff5a1f" : "#ffd23f" });
+        var node = el("circle", { cx: CX, cy: CY, r: r, fill: LAVA[i % LAVA.length] });
         fx.appendChild(node);
         parts.push({
           node: node, x: CX, y: CY,
@@ -170,18 +174,43 @@
           life: 1.8 + Math.random() * 1.3, age: 0
         });
       }
-      // a thick ash column rises and drifts from the crater
-      var m = 6 + Math.floor(Math.random() * 4);
+
+      // lava running down both slopes, like a real volcano
+      for (var sd = 0; sd < SLOPES.length; sd++) {
+        var dir = SLOPES[sd];
+        var fc = 11 + Math.floor(Math.random() * 7);
+        for (var f = 0; f < fc; f++) {
+          var d0 = Math.random() * 120;             // spread along the slope
+          var jit = (Math.random() - 0.5) * 7;      // perpendicular wander
+          var fr = 1.8 + Math.random() * 1.8;
+          var fnode = el("circle", { cx: CX, cy: CY, r: fr, fill: LAVA[f % LAVA.length] });
+          fx.appendChild(fnode);
+          flows.push({
+            node: fnode,
+            x: CX + dir.dx * d0 - dir.dy * jit,
+            y: CY + dir.dy * d0 + dir.dx * jit,
+            vx: dir.dx * (16 + Math.random() * 16),
+            vy: dir.dy * (16 + Math.random() * 16),
+            life: 2.6 + Math.random() * 2.2, age: 0
+          });
+        }
+      }
+
+      // ash billowing out in all (upward) directions
+      var m = 9 + Math.floor(Math.random() * 5);
       for (var j = 0; j < m; j++) {
-        var r0 = 6 + Math.random() * 5;
+        var th = Math.PI * (0.12 + Math.random() * 0.76); // 22°–158° from +x
+        var ssp = 14 + Math.random() * 26;
+        var r0 = 5 + Math.random() * 6;
         var pf = el("circle", { cx: CX, cy: CY, r: r0, fill: "#8a8d93", opacity: 0.42 });
         fx.appendChild(pf);
         smoke.push({
-          node: pf, x: CX + (Math.random() - 0.5) * 16, y: CY,
-          vx: (Math.random() - 0.5) * 18, vy: -(20 + Math.random() * 20),
-          r: r0, life: 3 + Math.random() * 1.8, age: 0
+          node: pf, x: CX + (Math.random() - 0.5) * 18, y: CY,
+          vx: Math.cos(th) * ssp, vy: -Math.sin(th) * ssp,
+          r: r0, life: 3 + Math.random() * 2, age: 0
         });
       }
+
       ensureRunning();
     }
 
@@ -202,6 +231,19 @@
         p.node.setAttribute("cx", p.x.toFixed(1));
         p.node.setAttribute("cy", p.y.toFixed(1));
         p.node.setAttribute("opacity", Math.max(0, 1 - p.age / p.life).toFixed(2));
+      }
+
+      for (var n2 = flows.length - 1; n2 >= 0; n2--) {
+        var fl = flows[n2];
+        fl.age += dt;
+        fl.x += fl.vx * dt;
+        fl.y += fl.vy * dt;
+        if (fl.age >= fl.life || fl.y > 255) {
+          fx.removeChild(fl.node); flows.splice(n2, 1); continue;
+        }
+        fl.node.setAttribute("cx", fl.x.toFixed(1));
+        fl.node.setAttribute("cy", fl.y.toFixed(1));
+        fl.node.setAttribute("opacity", (0.95 * Math.max(0, 1 - fl.age / fl.life)).toFixed(2));
       }
 
       for (var k = smoke.length - 1; k >= 0; k--) {
@@ -225,7 +267,7 @@
         if (g <= 0) { fx.removeChild(glow); glow = null; }
       }
 
-      if (parts.length || smoke.length || glow) {
+      if (parts.length || flows.length || smoke.length || glow) {
         requestAnimationFrame(step);
       } else {
         running = false; last = null;
