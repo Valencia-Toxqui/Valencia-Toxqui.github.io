@@ -150,34 +150,36 @@
     function erupt() {
       // crater glow flares up
       if (!glow) {
-        glow = el("ellipse", { cx: CX, cy: CY + 1, rx: 18, ry: 7, fill: "#ff7324" });
+        glow = el("ellipse", { cx: CX, cy: CY + 1, rx: 22, ry: 8, fill: "#ff8a32" });
         fx.appendChild(glow);
       }
-      glowDur = 2 + Math.random() * 1.2;
+      glowDur = 2.4 + Math.random() * 1.4;
       glowT = 0;
-      // launch a burst of lava bombs
-      var n = 14 + Math.floor(Math.random() * 10);
+      // launch a burst of lava bombs — a low, wide fountain that rains
+      // down the visible cone slopes
+      var n = 20 + Math.floor(Math.random() * 14);
       for (var i = 0; i < n; i++) {
-        var ang = (-Math.PI / 2) + (Math.random() - 0.5) * 1.15; // mostly upward
-        var sp = 70 + Math.random() * 95;
-        var r = 1.4 + Math.random() * 2.6;
+        var ang = (-Math.PI / 2) + (Math.random() - 0.5) * 1.5; // up, but well spread
+        var sp = 40 + Math.random() * 60;
+        var r = 2 + Math.random() * 2.4;
         var node = el("circle", { cx: CX, cy: CY, r: r, fill: i % 3 ? "#ff5a1f" : "#ffd23f" });
         fx.appendChild(node);
         parts.push({
           node: node, x: CX, y: CY,
           vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
-          life: 1.6 + Math.random() * 1.1, age: 0
+          life: 1.8 + Math.random() * 1.3, age: 0
         });
       }
-      // a few ash puffs drift up
-      var m = 3 + Math.floor(Math.random() * 3);
+      // a thick ash column rises and drifts from the crater
+      var m = 6 + Math.floor(Math.random() * 4);
       for (var j = 0; j < m; j++) {
-        var pf = el("circle", { cx: CX, cy: CY, r: 5, fill: "#8a8d93", opacity: 0.32 });
+        var r0 = 6 + Math.random() * 5;
+        var pf = el("circle", { cx: CX, cy: CY, r: r0, fill: "#8a8d93", opacity: 0.42 });
         fx.appendChild(pf);
         smoke.push({
-          node: pf, x: CX + (Math.random() - 0.5) * 10, y: CY,
-          vx: (Math.random() - 0.5) * 14, vy: -(16 + Math.random() * 14),
-          r: 5, life: 2.6 + Math.random() * 1.4, age: 0
+          node: pf, x: CX + (Math.random() - 0.5) * 16, y: CY,
+          vx: (Math.random() - 0.5) * 18, vy: -(20 + Math.random() * 20),
+          r: r0, life: 3 + Math.random() * 1.8, age: 0
         });
       }
       ensureRunning();
@@ -194,7 +196,7 @@
         p.vy += GRAV * dt;
         p.x += p.vx * dt;
         p.y += p.vy * dt;
-        if (p.age >= p.life || p.y > 300) {
+        if (p.age >= p.life || p.y > 250) {
           fx.removeChild(p.node); parts.splice(i, 1); continue;
         }
         p.node.setAttribute("cx", p.x.toFixed(1));
@@ -207,12 +209,12 @@
         s.age += dt;
         s.x += s.vx * dt;
         s.y += s.vy * dt;
-        s.r += 9 * dt;
+        s.r += 11 * dt;
         if (s.age >= s.life) { fx.removeChild(s.node); smoke.splice(k, 1); continue; }
         s.node.setAttribute("cx", s.x.toFixed(1));
         s.node.setAttribute("cy", s.y.toFixed(1));
         s.node.setAttribute("r", s.r.toFixed(1));
-        s.node.setAttribute("opacity", (0.32 * Math.max(0, 1 - s.age / s.life)).toFixed(2));
+        s.node.setAttribute("opacity", (0.42 * Math.max(0, 1 - s.age / s.life)).toFixed(2));
       }
 
       if (glow) {
@@ -235,10 +237,10 @@
     }
 
     function schedule() {
-      var wait = 9000 + Math.random() * 12000; // 9–21s between eruptions
+      var wait = 7000 + Math.random() * 9000; // 7–16s between eruptions
       setTimeout(function () { erupt(); schedule(); }, wait);
     }
-    setTimeout(function () { erupt(); schedule(); }, 2500 + Math.random() * 2500);
+    setTimeout(function () { erupt(); schedule(); }, 1500 + Math.random() * 1500);
   }
 
   /* ---------- nav toggle ---------- */
